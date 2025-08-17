@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>カレーゲーム</title>
+<style>
+html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: #000;
+    font-family: sans-serif;
+}
+#titleScreen, #game {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+}
+#titleScreen {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    background: #222 url('background.jpg') no-repeat center center;
+    background-size: cover;
+    color: #fff;
+    font-size: 50px;
+    text-align: center;
+}
+#startButton, #retryButton {
+    margin-top: 50px;
+    padding: 20px 40px;
+    font-size: 30px;
+    cursor: pointer;
+    background: #ffcc00;
+    border: none;
+    border-radius: 10px;
+}
+#game {
+    display: none;
+    width: 100vw;  /* 画面幅いっぱい */
+    height: calc(100vw * 16 / 9);  /* 9:16比率 */
+    max-height: 100vh;  /* 高さが画面を超えないように */
+    background: url('background.jpg') no-repeat center center;
+    background-size: cover;
+    position: relative;
+}
+.player {
+    position: absolute;
+    bottom: 20px;
+    width: 150px;
+    height: 150px;
+    background: url('player.png') no-repeat center center;
+    background-size: contain;
+    transition: transform 0.2s;
+}
+.item {
+    position: absolute;
+    width: 60px;
+    height: 60px;
+    background-size: contain;
+    background-repeat: no-repeat;
+}
+.curry { background-image: url('curry.png'); }
+.ramen { background-image: url('ramen.png'); }
+#score { 
+    position: absolute; 
+    top: 10px; 
+    left: 10px; 
+    font-size: 30px; 
+    color: #fff; 
+    text-shadow: 2px 2px 4px #000; 
+}
+#gameOverScreen {
+    display: none;
+    position: absolute;
+    top:0;
+    left:0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.7);
+    color: #fff;
+    font-size: 40px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    z-index: 10;
+}
+</style>
+</head>
+<body>
+<div id="titleScreen">
+    <div>カレーゲーム</div>
+    <button id="startButton">ゲームスタート</button>
+</div>
+
+<div id="game">
+    <div id="score">Score: 0</div>
+    <div class="player" id="player"></div>
+    <div id="gameOverScreen">
+        <div id="finalScore"></div>
+        <button id="retryButton">リトライ</button>
+    </div>
+</div>
+
+<script>
+const titleScreen = document.getElementById('titleScreen');
+const startButton = document.getElementById('startButton');
+const game = document.getElementById('game');
+const player = document.getElementById('player');
+const scoreDisplay = document.getElementById('score');
+const gameOverScreen = document.getElementById('gameOverScreen');
+const finalScore = document.getElementById('finalScore');
+const retryButton = document.getElementById('retryButton');
+
+let score = 0;
+let gameOver = false;
+
+// 効果音
+const currySound = new Audio('curry.mp3');
+const ramenSound = new Audio('ramen.mp3');
+const startSound = new Audio('start.mp3');
+
+// BGM
+let bgm = new Audio('bgm.mp3');
+bgm.loop = true;
+bgm.volume = 0.5;
+
+// プレイヤー初期位置
+let playerX = 0;
+function resetPlayer() {
+    playerX = (game.clientWidth - player.offsetWidth)/2;
+    player.style.left = playerX + 'px';
+}
+
+// キー状態管理
+const keys = { ArrowLeft:false, ArrowRight:false };
+document.addEventListener('keydown', e => { if(keys.hasOwnProperty(e.key) && !gameOver) keys[e.key] = true; });
+document.addEventListener('keyup', e => { if(keys.hasOwnProperty(e.key) && !gameOver) keys[e.key] = false; });
+
+// スマホ用タッチ操作
+game.addEventListener('touchstart', e => {
+    if(gameOver) return;
+    const touchX = e.touches[0].clientX;
+    if(touchX < game.clientWidth / 2) keys.ArrowLeft = true;
+    else keys.ArrowRight = true;
+});
+game.addEventListener('touchend', e => {
+    keys.ArrowLeft = false;
+    keys.ArrowRight = false;
+});
+
+// プレイヤー移動
+let movePlayerRunning = false;
+function movePlayer() {
+    if(movePlayerRunning) return;
+    movePlayerRunning = true;
+
+    function loop() {
+        if(!gameOver){
+            let speed = 8; 
+            if(keys.ArrowLeft) playerX -= speed;
+            if(keys.ArrowRight) playerX += speed;
+            if(playerX < 0) playerX = 0;
+            const maxX = game.clientWidth - player.offsetWidth;
+            if(playerX > maxX) playerX = maxX;
+            player.style.left = playerX + 'px';
+        }
+        requestAnimationFrame(loop);
+    }
+    requestAnimationFrame(loop);
+}
+
+// アイテム生成
+function createItem() {
+    if(gameOver) return;
+    let itemCount = Math.min(1 + Math.floor(score/15), 4); 
+    for(let i=0; i<itemCount; i++){
+        const item = document.createElement('div');
+        item.classList.add('item');
+        let ramenRate = Math.min(0.3 + score*0.012, 0.55);
+        const isCurry = Math.random() >= ramenRate;
+        if(isCurry) item.classList.add('curry');
+        else item.classList.add('ramen');
+        item.style.left = Math.random() * (game.clientWidth - 60) + 'px';
+        item.style.top = '0px';
+        game.appendChild(item);
+        let speed = Math.min(1 + Math.random()*2 + score*0.07, 7);
+
+        function fall() {
+            if(gameOver) { if(item.parentNode) item.parentNode.removeChild(item); return; }
+            const y = parseFloat(item.style.top);
+            if(y > game.clientHeight - 60) { if(item.parentNode) item.parentNode.removeChild(item); return; }
+            item.style.top = y + speed + 'px';
+            const itemX = parseFloat(item.style.left);
+
+            const marginY = 5;  // 縦判定
+            const marginX = 5;  // 横判定も縦と同じ
+
+            if(y + 50 - marginY >= game.clientHeight - 150 &&
+               itemX + 50 - marginX >= playerX &&
+               itemX + 10 + marginX <= playerX + player.offsetWidth) {
+                if(item.classList.contains('curry')) {
+                    score++;
+                    scoreDisplay.innerText = 'Score: ' + score;
+                    currySound.currentTime = 0;
+                    currySound.play();
+                } else {
+                    ramenSound.currentTime = 0;
+                    ramenSound.play();
+                    player.style.backgroundImage = "url('player_down.png')";
+                    gameOver = true;
+                    bgm.pause();
+                    finalScore.innerText = 'スコア: ' + score;
+                    gameOverScreen.style.display = 'flex';
+                }
+                if(item.parentNode) item.parentNode.removeChild(item);
+                return;
+            }
+            requestAnimationFrame(fall);
+        }
+        requestAnimationFrame(fall);
+    }
+}
+
+// 生成間隔
+function getInterval() {
+    return Math.max(1000 - score*30, 300);
+}
+
+// 自動生成ループ
+let lastTime = 0;
+function generateLoop(timestamp){
+    if(gameOver) return;
+    if(!lastTime) lastTime = timestamp;
+    if(timestamp - lastTime > getInterval()){
+        createItem();
+        lastTime = timestamp;
+    }
+    requestAnimationFrame(generateLoop);
+}
+
+// ゲーム開始関数
+function startGame() {
+    score = 0;
+    gameOver = false;
+    scoreDisplay.innerText = 'Score: 0';
+    player.style.backgroundImage = "url('player.png')";
+    resetPlayer();
+    gameOverScreen.style.display = 'none';
+
+    keys.ArrowLeft = false;
+    keys.ArrowRight = false;
+
+    bgm.currentTime = 0;
+    bgm.play().catch(()=>{});
+
+    movePlayer();
+    lastTime = 0;
+    requestAnimationFrame(generateLoop);
+}
+
+// スタートボタン（1.5秒待機、タイトル画面のまま）
+startButton.addEventListener('click', () => {
+    startSound.currentTime = 0;
+    startSound.play().catch(()=>{});
+
+    setTimeout(() => {
+        titleScreen.style.display = 'none';
+        game.style.display = 'block';
+        startGame();
+    }, 1500); // 1.5秒待機
+});
+
+// リトライボタン（効果音なし）
+retryButton.addEventListener('click', () => {
+    startGame();
+});
+</script>
+</body>
+</html>
